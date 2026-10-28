@@ -55,7 +55,7 @@ async def show_candidates(target,survey_id:int,page:int):
         if not survey or not survey.active or survey.ends_at<=datetime.now(timezone.utc):
             await target.answer('So‘rovnoma yopilgan.')
             return
-        rows=(await db.execute(select(Candidate.id,Employee.name,Employee.region).join(Employee,Employee.id==Candidate.employee_id).where(Candidate.survey_id==survey_id,Employee.active==True).order_by(Employee.name).offset(page*8).limit(9))).all()
+        rows=(await db.execute(select(Candidate.id,Employee.name,Employee.region).join(Employee,Employee.id==Candidate.employee_id).where(Candidate.survey_id==survey_id,Employee.active==True).order_by(Employee.name).offset(page*8).limit(15))).all()
     if not rows and page>0:
         await target.answer('Boshqa nomzodlar yo‘q.')
         return
