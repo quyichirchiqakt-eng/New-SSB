@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from .db import settings, Session, init_db, Survey, Candidate, Employee, Channel, Vote
 
@@ -66,13 +66,84 @@ async def show_candidates(target,survey_id:int,page:int):
     if nav: buttons.append(nav)
     await target.answer(f'🏆 {survey.title}\n\n{survey.description}\n\nNomzodni tanlang:',reply_markup=keyboard(buttons))
 
+async def show_results(message: Message, survey_id: int):
+    async with Session() as db:
+        survey = await db.get(Survey, survey_id)
+
+        if not survey:
+            await message.answer("So‘rovnoma topilmadi.")
+            return
+
+        stmt = (
+            select(
+                Employee.name,
+                func.count(Vote.id).label("votes")
+            )
+            .select_from(Candidate)
+            .join(
+                Employee,
+                Employee.id == Candidate.employee_id
+            )
+            .outerjoin(
+                Vote,
+                (Vote.candidate_id == Candidate.id)
+                & (Vote.survey_id == survey_id)
+            )
+            .where(Candidate.survey_id == survey_id)
+            .group_by(Candidate.id, Employee.name)
+            .order_by(
+                func.count(Vote.id).desc(),
+                Employee.name
+            )
+        )
+
+        rows = (await db.execute(stmt)).all()
+
+    lines = [
+        f"📊 {survey.title}",
+        "",
+        "Ovoz berish natijalari:",
+        ""
+    ]
+
+    for index, row in enumerate(rows, 1):
+        lines.append(
+            f"{index}. {row.name} — {row.votes} ta ovoz"
+        )
+
+    lines.append("")
+    lines.append(
+        f"🗳 Jami ovozlar: "
+        f"{sum(row.votes for row in rows)}"
+    )
+
+    await message.answer("\n".join(lines))
+
+
 @dp.message(CommandStart())
-async def start(message:Message):
-    payload=(message.text or '').split(maxsplit=1)
-    if len(payload)==2 and payload[1].startswith('s') and payload[1][1:].isdigit():
-        await show_survey(message,int(payload[1][1:]),message.from_user.id)
-    else:
-        await message.answer('Assalomu alaykum! So‘rovnoma havolasi orqali ovoz berishingiz mumkin.')
+async def start(message: Message):
+    payload = (message.text or '').split(maxsplit=1)
+
+    if len(payload) == 2:
+        arg = payload[1]
+
+        if arg.startswith('results') and arg[7:].isdigit():
+            await show_results(message, int(arg[7:]))
+            return
+
+        if arg.startswith('s') and arg[1:].isdigit():
+            await show_survey(
+                message,
+                int(arg[1:]),
+                message.from_user.id
+            )
+            return
+
+    await message.answer(
+        "Assalomu alaykum! So‘rovnoma havolasi orqali "
+        "ovoz berishingiz mumkin."
+    )
+
 
 @dp.callback_query(F.data.startswith('check:'))
 async def check(call:CallbackQuery):
