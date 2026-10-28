@@ -202,16 +202,32 @@ async def start_web_server():
     logging.info("Health server listening on %s", PORT)
     return runner
 
+
 async def main():
     logging.basicConfig(level=logging.INFO)
     await init_db()
     runner = await start_web_server()
     try:
         await bot.delete_webhook(drop_pending_updates=False)
-        await dp.start_polling(bot, handle_signals=True, close_bot_session=False)
+
+        # Mavjud Telegram postiga natijalar tugmasini qo‘shish
+        try:
+            await update_results_button()
+        except Exception:
+            logging.exception(
+                "Post tugmalarini yangilab bo‘lmadi"
+            )
+
+        await dp.start_polling(
+            bot,
+            handle_signals=True,
+            close_bot_session=False
+        )
     finally:
         await runner.cleanup()
         await bot.session.close()
 
+
 if __name__ == '__main__':
     asyncio.run(main())
+
