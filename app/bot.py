@@ -59,10 +59,10 @@ async def show_candidates(target,survey_id:int,page:int):
     if not rows and page>0:
         await target.answer('Boshqa nomzodlar yo‘q.')
         return
-    buttons=[[InlineKeyboardButton(text=f'🟢 {r.name[:36]} — {r.region[:18]}',callback_data=f'vote:{survey_id}:{r.id}')] for r in rows[:8]]
+    buttons=[InlineKeyboardButton(text=f'🟢 {r.name[:36]} — {r.region[:18]}',callback_data=f'vote:{survey_id}:{r.id}') for r in rows[:15]]
     nav=[]
     if page>0: nav.append(InlineKeyboardButton(text='⬅️',callback_data=f'page:{survey_id}:{page-1}'))
-    if len(rows)>8: nav.append(InlineKeyboardButton(text='➡️',callback_data=f'page:{survey_id}:{page+1}'))
+    if len(rows)>15: nav.append(InlineKeyboardButton(text='➡️',callback_data=f'page:{survey_id}:{page+1}'))
     if nav: buttons.append(nav)
     await target.answer(f'🏆 {survey.title}\n\n{survey.description}\n\nNomzodni tanlang:',reply_markup=keyboard(buttons))
 
