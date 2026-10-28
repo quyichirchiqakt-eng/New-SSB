@@ -3,7 +3,9 @@ from io import BytesIO
 from pathlib import Path
 from typing import Annotated
 import secrets
-from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File
+import json
+import aiohttp
+from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Form
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
@@ -159,3 +161,62 @@ async def export_results(survey_id:int, db:AsyncSession=Depends(session)):
     for r in data: ws.append([r['candidate_id'],r['name'],r['region'],r['votes']])
     output=BytesIO();wb.save(output);output.seek(0)
     return StreamingResponse(output,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':f'attachment; filename="survey_{survey_id}.xlsx"'})
+
+
+@app.post('/api/surveys/{survey_id}/publish-photo', dependencies=[Depends(auth)])
+async def publish_survey_photo(
+    survey_id: int,
+    chat_id: int = Form(...),
+    caption: str = Form(...),
+    photo: UploadFile = File(...),
+    db: AsyncSession = Depends(session),
+):
+    """Publish one survey announcement to a channel registered for that survey."""
+    survey = await db.get(Survey, survey_id)
+    if survey is None:
+        raise HTTPException(404, 'So‘rovnoma topilmadi')
+    allowed_channel = await db.scalar(
+        select(Channel).where(Channel.survey_id == survey_id, Channel.chat_id == chat_id)
+    )
+    if allowed_channel is None:
+        raise HTTPException(400, 'Kanal bu so‘rovnomaga biriktirilmagan')
+    if not survey.active:
+        raise HTTPException(400, 'So‘rovnoma faol emas')
+    if not caption.strip() or len(caption) > 1024:
+        raise HTTPException(400, 'Post matni 1–1024 belgi bo‘lishi kerak')
+
+    content = await photo.read(8_000_001)
+    if len(content) > 8_000_000:
+        raise HTTPException(400, 'Rasm hajmi 8 MB dan oshmasin')
+    is_jpeg = content.startswith(b'\xff\xd8\xff')
+    is_png = content.startswith(b'\x89PNG\r\n\x1a\n')
+    if not (is_jpeg or is_png):
+        raise HTTPException(400, 'Faqat haqiqiy JPG yoki PNG rasm qabul qilinadi')
+
+    username = settings.public_bot_username.lstrip('@')
+    vote_url = f'https://t.me/{username}?start=s{survey_id}'
+    keyboard = {'inline_keyboard': [[{'text': '🗳 OVOZ BERISH', 'url': vote_url}]]}
+    form = aiohttp.FormData()
+    form.add_field('chat_id', str(chat_id))
+    form.add_field('caption', caption.strip())
+    form.add_field('reply_markup', json.dumps(keyboard, ensure_ascii=False))
+    form.add_field('photo', content, filename='post.jpg' if is_jpeg else 'post.png',
+                   content_type='image/jpeg' if is_jpeg else 'image/png')
+    url = f'https://api.telegram.org/bot{settings.bot_token}/sendPhoto'
+    try:
+        timeout = aiohttp.ClientTimeout(total=35)
+        async with aiohttp.ClientSession(timeout=timeout) as client:
+            async with client.post(url, data=form) as response:
+                payload = await response.json(content_type=None)
+    except (aiohttp.ClientError, TimeoutError, ValueError):
+        raise HTTPException(502, 'Telegram bilan bog‘lanishda xatolik')
+    if not payload.get('ok'):
+        # Telegram error text contains no token, but do not expose raw response.
+        raise HTTPException(502, 'Post yuborilmadi. Botning kanal administratorligi va post joylash huquqini tekshiring')
+    return {
+        'ok': True,
+        'survey_id': survey_id,
+        'chat_id': chat_id,
+        'message_id': payload['result']['message_id'],
+        'bot_link': vote_url,
+    }
