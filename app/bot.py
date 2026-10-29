@@ -90,7 +90,7 @@ async def show_results(message: Message, survey_id: int):
                 (Vote.candidate_id == Candidate.id)
                 & (Vote.survey_id == survey_id)
             )
-                        .where(Candidate.survey_id == survey_id)
+            .where(Candidate.survey_id == survey_id)
             .group_by(Candidate.id, Employee.name)
             .order_by(
                 func.count(Vote.id).desc(),
@@ -99,3 +99,149 @@ async def show_results(message: Message, survey_id: int):
         )
 
         rows = (await db.execute(stmt)).all()
+
+    lines = [
+        f"📊 {survey.title}",
+        "",
+        "Ovoz berish natijalari:",
+        ""
+    ]
+
+    for index, row in enumerate(rows, 1):
+        lines.append(
+            f"{index}. {row.name} — {row.votes} ta ovoz"
+        )
+
+    lines.append("")
+    lines.append(
+        f"🗳 Jami ovozlar: "
+        f"{sum(row.votes for row in rows)}"
+    )
+
+    await message.answer("\n".join(lines))
+
+
+@dp.message(CommandStart())
+async def start(message: Message):
+    payload = (message.text or '').split(maxsplit=1)
+
+    if len(payload) == 2:
+        arg = payload[1]
+
+        if arg.startswith('results') and arg[7:].isdigit():
+            await show_results(message, int(arg[7:]))
+            return
+
+        if arg.startswith('s') and arg[1:].isdigit():
+            await show_survey(
+                message,
+                int(arg[1:]),
+                message.from_user.id
+            )
+            return
+
+    await message.answer(
+        "Assalomu alaykum! So‘rovnoma havolasi orqali "
+        "ovoz berishingiz mumkin."
+    )
+
+
+@dp.callback_query(F.data.startswith('check:'))
+async def check(call:CallbackQuery):
+    await call.answer()
+    await show_survey(call.message,int(call.data.split(':')[1]),call.from_user.id)
+
+@dp.callback_query(F.data.startswith('page:'))
+async def page(call:CallbackQuery):
+    await call.answer()
+    _,survey_id,page=call.data.split(':')
+    if int(page)<0: return
+    await show_candidates(call.message,int(survey_id),int(page))
+
+@dp.callback_query(F.data.startswith('vote:'))
+async def vote(call:CallbackQuery):
+    await call.answer()
+    _,sid,cid=call.data.split(':')
+    sid,cid=int(sid),int(cid)
+    if await subscribed(call.from_user.id,sid):
+        await call.message.answer('Avval majburiy kanallarga obuna bo‘ling. /start havolasidan qayta kiring.')
+        return
+    async with Session() as db:
+        survey=await db.get(Survey,sid)
+        candidate=await db.get(Candidate,cid)
+        if not survey or not survey.active or survey.ends_at<=datetime.now(timezone.utc) or not candidate or candidate.survey_id!=sid:
+            await call.message.answer('Ovoz berish muddati tugagan yoki nomzod noto‘g‘ri.')
+            return
+        employee=await db.get(Employee,candidate.employee_id)
+        if not employee or not employee.active or employee.organization_id!=survey.organization_id:
+            await call.message.answer('Nomzod faol emas.')
+            return
+        db.add(Vote(survey_id=sid,candidate_id=cid,telegram_user_id=call.from_user.id))
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            await call.message.answer('Siz allaqachon ovoz bergansiz.')
+            return
+    await call.message.answer('✅ Ovozingiz qabul qilindi. Rahmat!')
+
+async def update_results_button():
+    """Update the existing Survey 4 channel post without replacing its photo/caption."""
+    markup = keyboard([
+        [InlineKeyboardButton(text="🗳 Ovoz berish", url="https://t.me/new_SSB_bot?start=s4")],
+        [InlineKeyboardButton(text="📊 Natijalarni ko‘rish", url="https://t.me/new_SSB_bot?start=results4")],
+    ])
+    await bot.edit_message_reply_markup(
+        chat_id=-1002872785266,
+        message_id=48,
+        reply_markup=markup,
+    )
+
+
+async def health(request):
+    return web.json_response({"status": "ok", "service": "surveybot"})
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    try:
+        site = web.TCPSite(runner, host="0.0.0.0", port=PORT)
+        await site.start()
+    except Exception:
+        await runner.cleanup()
+        raise
+    logging.info("Health server listening on %s", PORT)
+    return runner
+
+
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    await init_db()
+    runner = await start_web_server()
+    try:
+        await bot.delete_webhook(drop_pending_updates=False)
+
+        # Mavjud Telegram postiga natijalar tugmasini qo‘shish
+        try:
+            await update_results_button()
+        except Exception:
+            logging.exception(
+                "Post tugmalarini yangilab bo‘lmadi"
+            )
+
+        await dp.start_polling(
+            bot,
+            handle_signals=True,
+            close_bot_session=False
+        )
+    finally:
+        await runner.cleanup()
+        await bot.session.close()
+
+
+if __name__ == '__main__':
+    asyncio.run(main())
+
