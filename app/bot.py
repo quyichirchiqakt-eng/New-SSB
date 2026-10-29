@@ -90,7 +90,12 @@ async def show_results(message: Message, survey_id: int):
                 (Vote.candidate_id == Candidate.id)
                 & (Vote.survey_id == survey_id)
             )
-            .where(Candidate.survey_id == survey_id)
+                        .where(Candidate.survey_id == survey_id)
             .group_by(Candidate.id, Employee.name)
             .order_by(
                 func.count(Vote.id).desc(),
+                Employee.name
+            )
+        )
+
+        rows = (await db.execute(stmt)).all()
