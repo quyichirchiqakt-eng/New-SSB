@@ -217,20 +217,25 @@ async def start_web_server():
     return runner
 
 
+
+
 async def main():
     logging.basicConfig(level=logging.INFO)
     await init_db()
     runner = await start_web_server()
+
     try:
         await bot.delete_webhook(drop_pending_updates=False)
 
-        # Mavjud Telegram postiga natijalar tugmasini qo‘shish
         try:
             await update_results_button()
         except Exception:
-            logging.exception(
-                "Post tugmalarini yangilab bo‘lmadi"
-            )
+            logging.exception("Post tugmalari yangilab bo‘lmadi")
+
+        try:
+            await update_survey8_post()
+        except Exception:
+            logging.exception("Survey 8 post tugmalari yangilanmadi")
 
         await dp.start_polling(
             bot,
@@ -241,6 +246,31 @@ async def main():
         await runner.cleanup()
         await bot.session.close()
 
+
+
+async def update_survey8_post():
+    buttons = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🗳 Ovoz berish",
+                    url="https://t.me/new_SSB_bot?start=s8"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📊 Natijalarni ko‘rish",
+                    url="https://t.me/new_SSB_bot?start=results8"
+                )
+            ]
+        ]
+    )
+
+    await bot.edit_message_reply_markup(
+        chat_id="@ohangaronttibbiyotbirlashmasi",
+        message_id=8613,
+        reply_markup=buttons
+    )
 
 if __name__ == '__main__':
     asyncio.run(main())
