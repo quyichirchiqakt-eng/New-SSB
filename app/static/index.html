@@ -2,7 +2,43 @@
 <button onclick="get('/api/organizations/'+val('importOrg')+'/employees')">
   👥 Xodimlarni ko‘rish
 </button>
-  </section><section><h3>Nomzod qo‘shish</h3><input id="candidateSurvey" type="number" placeholder="So‘rovnoma ID"><input id="employeeId" type="number" placeholder="Xodimning ichki ID raqami"><button onclick="post('/api/surveys/'+val('candidateSurvey')+'/candidates',{employee_id:Number(val('employeeId'))})">Nomzod qo‘shish</button></section><section><h3>Majburiy kanal qo‘shish</h3><input id="channelSurvey" type="number" placeholder="So‘rovnoma ID"><input id="chatId" placeholder="Kanal chat ID, masalan -1001234567890"><input id="inviteUrl" placeholder="https://t.me/kanal"><button onclick="post('/api/surveys/'+val('channelSurvey')+'/channels',{chat_id:Number(val('chatId')),invite_url:val('inviteUrl')})">Kanal qo‘shish</button></section><section><h3>📸 Kanallarga rasmli post joylash</h3><small>Avval kanalni yuqoridagi «Majburiy kanal qo‘shish» bo‘limida so‘rovnomaga biriktiring. Bot kanal administratori va post joylash huquqiga ega bo‘lishi kerak.</small><label for="photoSurvey">So‘rovnoma ID</label><input id="photoSurvey" type="number" min="1" placeholder="Masalan: 1"><label for="photoChat">Kanal Chat ID</label><input id="photoChat" placeholder="Masalan: -1001234567890"><label for="postPhoto">Post rasmi (JPG/PNG, 8 MB gacha)</label><input id="postPhoto" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png"><label for="postCaption">Post matni (1024 belgigacha)</label><textarea id="postCaption" rows="5" maxlength="1024" placeholder="🏆 Ovoz berish boshlandi! ..."></textarea><small>«🗳 OVOZ BERISH» tugmasi so‘rovnomaga havola bilan avtomatik qo‘shiladi. Bir marta bosish — bir post; qayta bosish takroriy post chiqaradi.</small><button id="publishBtn" onclick="publishPhoto()">📤 Kanalga rasmli post joylash</button></section><section><h3>Natijalar</h3><input id="resultSurvey" type="number" placeholder="So‘rovnoma ID"><button onclick="get('/api/surveys/'+val('resultSurvey')+'/results')">Natijalarni ko‘rish</button><button onclick="download()">Excel yuklab olish</button></section><section><h3>Javob</h3><pre id="out"></pre></section><script>
+</section>
+<section>
+  <h3>Nomzod qo‘shish</h3><input id="candidateSurvey" type="number" placeholder="So‘rovnoma ID"><input id="employeeId" type="number" placeholder="Xodimning ichki ID raqami"><button onclick="post('/api/surveys/'+val('candidateSurvey')+'/candidates',{employee_id:Number(val('employeeId'))})">Nomzod qo‘shish</button></section><section><h3>Majburiy kanal qo‘shish</h3><input id="channelSurvey" type="number" placeholder="So‘rovnoma ID"><input id="chatId" placeholder="Kanal chat ID, masalan -1001234567890"><input id="inviteUrl" placeholder="https://t.me/kanal"><button onclick="post('/api/surveys/'+val('channelSurvey')+'/channels',{chat_id:Number(val('chatId')),invite_url:val('inviteUrl')})">Kanal qo‘shish</button></section>
+<section>
+  <h3>⚙️ So‘rovnomani boshqarish</h3>
+  <input id="manageSurvey" type="number"
+         placeholder="So‘rovnoma ID (masalan, 4)">
+  <button onclick="deactivateSurvey()">
+    ⛔ So‘rovnomani faolsizlantirish
+  </button>
+  <small>
+    Nomzodlar, ovozlar va natijalar saqlanadi.
+  </small>
+</section>
+
+<section>
+  <h3>📢 Majburiy kanallarni boshqarish</h3>
+  <input id="manageChannelSurvey" type="number"
+         value="8" placeholder="So‘rovnoma ID">
+
+  <button onclick="listChannels()">
+    📋 Kanallar ro‘yxatini ko‘rish
+  </button>
+
+  <input id="removeChannelId" type="number"
+         placeholder="O‘chiriladigan kanalning ichki ID raqami">
+
+  <button onclick="removeChannel()">
+    🗑 Kanalni majburiy obunadan olib tashlash
+  </button>
+
+  <small>
+    Telegram kanalining o‘zi o‘chirilmaydi.
+    Faqat majburiy obuna talabi olib tashlanadi.
+  </small>
+</section>
+<h3>📸 Kanallarga rasmli post joylash</h3><small>Avval kanalni yuqoridagi «Majburiy kanal qo‘shish» bo‘limida so‘rovnomaga biriktiring. Bot kanal administratori va post joylash huquqiga ega bo‘lishi kerak.</small><label for="photoSurvey">So‘rovnoma ID</label><input id="photoSurvey" type="number" min="1" placeholder="Masalan: 1"><label for="photoChat">Kanal Chat ID</label><input id="photoChat" placeholder="Masalan: -1001234567890"><label for="postPhoto">Post rasmi (JPG/PNG, 8 MB gacha)</label><input id="postPhoto" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png"><label for="postCaption">Post matni (1024 belgigacha)</label><textarea id="postCaption" rows="5" maxlength="1024" placeholder="🏆 Ovoz berish boshlandi! ..."></textarea><small>«🗳 OVOZ BERISH» tugmasi so‘rovnomaga havola bilan avtomatik qo‘shiladi. Bir marta bosish — bir post; qayta bosish takroriy post chiqaradi.</small><button id="publishBtn" onclick="publishPhoto()">📤 Kanalga rasmli post joylash</button></section><section><h3>Natijalar</h3><input id="resultSurvey" type="number" placeholder="So‘rovnoma ID"><button onclick="get('/api/surveys/'+val('resultSurvey')+'/results')">Natijalarni ko‘rish</button><button onclick="download()">Excel yuklab olish</button></section><section><h3>Javob</h3><pre id="out"></pre></section><script>
 const val=id=>document.getElementById(id).value;
 const output=x=>document.getElementById('out').textContent=typeof x==='string'?x:JSON.stringify(x,null,2);
 async function req(path,options={}){try{const r=await fetch(path,{...options,headers:{'X-Admin-Key':val('key'),...(options.headers||{})}});const data=await r.json();output(data);if(!r.ok)throw Error(JSON.stringify(data));return data}catch(e){output('Xatolik: '+e.message)}}
@@ -30,4 +66,56 @@ async function publishPhoto(){
  }catch(e){output('Xatolik: '+e.message)}
  finally{button.disabled=false;button.textContent='📤 Kanalga rasmli post joylash'}
 }
+  
+async function deactivateSurvey() {
+  const id = val('manageSurvey').trim();
+
+  if (!/^\d+$/.test(id) || Number(id) < 1) {
+    output("To‘g‘ri so‘rovnoma ID kiriting");
+    return;
+  }
+
+  if (!confirm(
+    `Survey ID ${id} faolsizlantirilsinmi? Ovozlar saqlanadi.`
+  )) return;
+
+  await req(
+    '/api/surveys/' + id + '/deactivate',
+    { method: 'POST' }
+  );
+}
+
+async function listChannels() {
+  const id = val('manageChannelSurvey').trim();
+
+  if (!/^\d+$/.test(id) || Number(id) < 1) {
+    output("To‘g‘ri so‘rovnoma ID kiriting");
+    return;
+  }
+
+  await get('/api/surveys/' + id + '/channels');
+}
+
+async function removeChannel() {
+  const survey = val('manageChannelSurvey').trim();
+  const channel = val('removeChannelId').trim();
+
+  if (!/^\d+$/.test(survey) ||
+      Number(survey) < 1 ||
+      !/^\d+$/.test(channel) ||
+      Number(channel) < 1) {
+    output("So‘rovnoma ID va kanal ID ni to‘g‘ri kiriting");
+    return;
+  }
+
+  if (!confirm(
+    `Survey ${survey} dan kanal ID ${channel} olib tashlansinmi?`
+  )) return;
+
+  await req(
+    '/api/surveys/' + survey + '/channels/' + channel,
+    { method: 'DELETE' }
+  );
+}
+
 </script></body></html>
