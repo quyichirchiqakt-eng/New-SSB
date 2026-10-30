@@ -4,7 +4,7 @@
 </button>
 </section>
 <section>
-  <h3>Nomzod qo‘shish</h3><input id="candidateSurvey" type="number" placeholder="So‘rovnoma ID"><input id="employeeId" type="number" placeholder="Xodimning ichki ID raqami"><button onclick="post('/api/surveys/'+val('candidateSurvey')+'/candidates',{employee_id:Number(val('employeeId'))})">Nomzod qo‘shish</button></section><section><h3>Majburiy kanal qo‘shish</h3><input id="channelSurvey" type="number" placeholder="So‘rovnoma ID"><input id="chatId" placeholder="Kanal chat ID, masalan -1001234567890"><input id="inviteUrl" placeholder="https://t.me/kanal"><button onclick="post('/api/surveys/'+val('channelSurvey')+'/channels',{chat_id:Number(val('chatId')),invite_url:val('inviteUrl')})">Kanal qo‘shish</button></section>
+  <h3>Nomzod qo‘shish</h3><input id="candidateSurvey" type="number" placeholder="So‘rovnoma ID"><input id="employeeId" type="number" placeholder="Xodimning ichki ID raqami"><button onclick="post('/api/surveys/'+val('candidateSurvey')+'/candidates',{employee_id:Number(val('employeeId'))})">Nomzod qo‘shish</button></section><section><h3>Majburiy kanal qo‘shish</h3><input id="channelSurvey" type="number" placeholder="So‘rovnoma ID"><input id="chatId" placeholder="Kanal chat ID, masalan -1001234567890"><input id="inviteUrl" placeholder="https://t.me/kanal"><button onclick="post('/api/surveys/'+val('channelSurvey')+'/channels',{chat_id:val('chatId').trim(),invite_url:val('inviteUrl')})">Kanal qo‘shish</button></section>
 <section>
   <h3>⚙️ So‘rovnomani boshqarish</h3>
   <input id="manageSurvey" type="number"
