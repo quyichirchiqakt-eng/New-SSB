@@ -40,7 +40,7 @@ class CandidateIn(BaseModel):
     employee_id: int
 
 class ChannelIn(BaseModel):
-    chat_id: int
+    chat_id: int | str
     invite_url: str
 
 @app.get('/')
@@ -87,16 +87,64 @@ async def add_candidate(survey_id:int, data:CandidateIn, db:AsyncSession=Depends
     await db.commit()
     return {'id':row.id}
 
+
 @app.post('/api/surveys/{survey_id}/channels', dependencies=[Depends(auth)])
-async def add_channel(survey_id:int, data:ChannelIn, db:AsyncSession=Depends(session)):
-    if not await db.get(Survey,survey_id):
-        raise HTTPException(404,'So‘rovnoma topilmadi')
-    if not data.invite_url.startswith('https://t.me/'):
-        raise HTTPException(400,'Telegram kanal havolasi kerak')
-    row = Channel(survey_id=survey_id,**data.model_dump())
+async def add_channel(
+    survey_id: int,
+    data: ChannelIn,
+    db: AsyncSession = Depends(session)
+):
+    if not await db.get(Survey, survey_id):
+        raise HTTPException(404, "So‘rovnoma topilmadi")
+
+    if not data.invite_url.startswith("https://t.me/"):
+        raise HTTPException(400, "Telegram kanal havolasi kerak")
+
+    chat_id = data.chat_id
+
+    if isinstance(chat_id, str):
+        chat_id = chat_id.strip()
+
+        if chat_id.startswith("@"):
+            from aiogram import Bot
+
+            async with Bot(token=settings.bot_token) as tg_bot:
+                try:
+                    chat = await tg_bot.get_chat(chat_id)
+                    chat_id = chat.id
+                except Exception:
+                    raise HTTPException(
+                        400,
+                        "Kanal topilmadi. Bot administratorligini tekshiring."
+                    )
+        else:
+            try:
+                chat_id = int(chat_id)
+            except ValueError:
+                raise HTTPException(400, "Chat ID noto‘g‘ri")
+
+    existing = await db.scalar(
+        select(Channel.id).where(
+            Channel.survey_id == survey_id,
+            Channel.chat_id == chat_id
+        )
+    )
+
+    if existing:
+        raise HTTPException(400, "Bu kanal allaqachon qo‘shilgan")
+
+    row = Channel(
+        survey_id=survey_id,
+        chat_id=chat_id,
+        invite_url=data.invite_url
+    )
+
     db.add(row)
     await db.commit()
-    return {'id':row.id}
+    await db.refresh(row)
+
+    return {"id": row.id, "chat_id": row.chat_id}
+
 
 @app.post('/api/organizations/{org_id}/employees/import', dependencies=[Depends(auth)])
 async def import_employees(org_id:int, file:UploadFile=File(...), db:AsyncSession=Depends(session)):
