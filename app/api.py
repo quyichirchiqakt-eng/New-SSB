@@ -220,3 +220,79 @@ async def publish_survey_photo(
         'message_id': payload['result']['message_id'],
         'bot_link': vote_url,
     }
+
+# So'rovnomani faolsizlantirish
+@app.post(
+    "/api/surveys/{survey_id}/deactivate",
+    dependencies=[Depends(auth)]
+)
+async def deactivate_survey(
+    survey_id: int,
+    db: AsyncSession = Depends(session)
+):
+    survey = await db.get(Survey, survey_id)
+    if not survey:
+        raise HTTPException(404, "So'rovnoma topilmadi")
+
+    survey.active = False
+    await db.commit()
+
+    return {
+        "survey_id": survey_id,
+        "active": False,
+        "message": "So'rovnoma faolsizlantirildi"
+    }
+
+
+# Majburiy kanallar ro'yxati
+@app.get(
+    "/api/surveys/{survey_id}/channels",
+    dependencies=[Depends(auth)]
+)
+async def list_channels(
+    survey_id: int,
+    db: AsyncSession = Depends(session)
+):
+    if not await db.get(Survey, survey_id):
+        raise HTTPException(404, "So'rovnoma topilmadi")
+
+    rows = (
+        await db.scalars(
+            select(Channel)
+            .where(Channel.survey_id == survey_id)
+            .order_by(Channel.id)
+        )
+    ).all()
+
+    return [
+        {
+            "id": ch.id,
+            "chat_id": ch.chat_id,
+            "invite_url": ch.invite_url
+        }
+        for ch in rows
+    ]
+
+
+# Kanalni majburiy obunadan olib tashlash
+@app.delete(
+    "/api/surveys/{survey_id}/channels/{channel_id}",
+    dependencies=[Depends(auth)]
+)
+async def remove_channel(
+    survey_id: int,
+    channel_id: int,
+    db: AsyncSession = Depends(session)
+):
+    channel = await db.get(Channel, channel_id)
+
+    if not channel or channel.survey_id != survey_id:
+        raise HTTPException(404, "Kanal topilmadi")
+
+    await db.delete(channel)
+    await db.commit()
+
+    return {
+        "ok": True,
+        "message": "Kanal majburiy obunadan olib tashlandi"
+    }
