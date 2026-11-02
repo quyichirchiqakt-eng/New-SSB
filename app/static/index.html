@@ -187,4 +187,65 @@ async function viewSurveyDeadline() {
   }
 }
 
+async function extendSurveyDeadline() {
+  const id = val('deadlineSurveyId').trim();
+  const deadline = val('newDeadline');
+  const result = document.getElementById('deadlineResult');
+
+  if (!/^\d+$/.test(id) || Number(id) < 1) {
+    result.textContent = "So‘rovnoma ID noto‘g‘ri";
+    return;
+  }
+
+  if (!deadline) {
+    result.textContent = "Yangi sana va vaqtni kiriting";
+    return;
+  }
+
+  const newDate = new Date(deadline);
+
+  if (isNaN(newDate.getTime()) ||
+      newDate <= new Date()) {
+    result.textContent = "Kelajakdagi sanani kiriting";
+    return;
+  }
+
+  if (!confirm(
+    "Survey ID " + id +
+    " muddatini uzaytirishni tasdiqlaysizmi?"
+  )) {
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      '/api/surveys/' + id + '/extend-deadline',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Key': val('key')
+        },
+        body: JSON.stringify({
+          ends_at: newDate.toISOString()
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      result.textContent =
+        "Xatolik: " + (data.detail || response.status);
+      return;
+    }
+
+    result.textContent = "Muddat muvaffaqiyatli uzaytirildi!";
+    await viewSurveyDeadline();
+
+  } catch (error) {
+    result.textContent = "Xatolik: " + error.message;
+  }
+}
+
 </script></body></html>
