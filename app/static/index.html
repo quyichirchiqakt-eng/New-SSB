@@ -18,6 +18,25 @@
 </section>
 
 <section>
+  <h3>📅 So‘rovnoma muddatini boshqarish</h3>
+
+  <input id="deadlineSurveyId" type="number"
+         value="8" placeholder="So‘rovnoma ID">
+
+  <button onclick="viewSurveyDeadline()">
+    📅 Tugash muddatini ko‘rish
+  </button>
+
+  <input id="newDeadline" type="datetime-local">
+
+  <button onclick="extendSurveyDeadline()">
+    ⏰ Muddatni uzaytirish
+  </button>
+
+  <p id="deadlineResult"></p>
+</section>
+
+<section>
   <h3>📢 Majburiy kanallarni boshqarish</h3>
   <input id="manageChannelSurvey" type="number"
          value="8" placeholder="So‘rovnoma ID">
@@ -116,6 +135,56 @@ async function removeChannel() {
     '/api/surveys/' + survey + '/channels/' + channel,
     { method: 'DELETE' }
   );
+}
+
+async function viewSurveyDeadline() {
+  const id = val('deadlineSurveyId').trim();
+  const result = document.getElementById('deadlineResult');
+
+  if (!/^\d+$/.test(id) || Number(id) < 1) {
+    result.textContent = "So‘rovnoma ID ni to‘g‘ri kiriting";
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/surveys', {
+      headers: {
+        'X-Admin-Key': val('key')
+      }
+    });
+
+    if (!response.ok) {
+      result.textContent =
+        "Xatolik: " + response.status;
+      return;
+    }
+
+    const surveys = await response.json();
+    const survey = surveys.find(s => s.id === Number(id));
+
+    if (!survey) {
+      result.textContent = "So‘rovnoma topilmadi";
+      return;
+    }
+
+    const date = new Date(survey.ends_at);
+
+    result.textContent =
+      "So‘rovnoma ID: " + survey.id +
+      " | Tugash vaqti: " +
+      date.toLocaleString('uz-UZ', {
+        timeZone: 'Asia/Tashkent',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }) +
+      " (Toshkent vaqti)";
+  } catch (error) {
+    result.textContent = "Xatolik: " + error.message;
+  }
 }
 
 </script></body></html>
