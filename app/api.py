@@ -327,11 +327,13 @@ async def extend_survey_deadline(
             tzinfo=timezone.utc
         )
 
-    if new_deadline <= old_deadline:
-        raise HTTPException(
-            400,
-            "Yangi muddat avvalgi muddatdan kech bo‘lishi kerak"
-        )
+    
+if new_deadline <= datetime.now(timezone.utc):
+    raise HTTPException(
+        400,
+        "Yangi muddat hozirgi vaqtdan keyin bo‘lishi kerak"
+    )
+
 
     survey.ends_at = new_deadline
     await db.commit()
@@ -339,7 +341,7 @@ async def extend_survey_deadline(
     return {
         "survey_id": survey_id,
         "ends_at": new_deadline.isoformat(),
-        "message": "So‘rovnoma muddati uzaytirildi"
+        "message": "So‘rovnoma muddati muvaffaqiyatli o‘zgartirildi"
     }
 
 # Majburiy kanallar ro'yxati
