@@ -292,6 +292,56 @@ async def deactivate_survey(
     }
 
 
+class ExtendDeadlineIn(BaseModel):
+    ends_at: datetime
+
+
+@app.post(
+    "/api/surveys/{survey_id}/extend-deadline",
+    dependencies=[Depends(auth)]
+)
+async def extend_survey_deadline(
+    survey_id: int,
+    data: ExtendDeadlineIn,
+    db: AsyncSession = Depends(session)
+):
+    survey = await db.get(Survey, survey_id)
+
+    if not survey:
+        raise HTTPException(
+            404, "So‘rovnoma topilmadi"
+        )
+
+    new_deadline = data.ends_at
+
+    if new_deadline.tzinfo is None:
+        raise HTTPException(
+            400, "Vaqt mintaqasi ko‘rsatilmagan"
+        )
+
+    from datetime import timezone
+
+    old_deadline = survey.ends_at
+    if old_deadline.tzinfo is None:
+        old_deadline = old_deadline.replace(
+            tzinfo=timezone.utc
+        )
+
+    if new_deadline <= old_deadline:
+        raise HTTPException(
+            400,
+            "Yangi muddat avvalgi muddatdan kech bo‘lishi kerak"
+        )
+
+    survey.ends_at = new_deadline
+    await db.commit()
+
+    return {
+        "survey_id": survey_id,
+        "ends_at": new_deadline.isoformat(),
+        "message": "So‘rovnoma muddati uzaytirildi"
+    }
+
 # Majburiy kanallar ro'yxati
 @app.get(
     "/api/surveys/{survey_id}/channels",
