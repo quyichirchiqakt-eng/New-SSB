@@ -328,11 +328,12 @@ async def extend_survey_deadline(
         )
 
     
-if new_deadline <= datetime.now(timezone.utc):
-    raise HTTPException(
-        400,
-        "Yangi muddat hozirgi vaqtdan keyin bo‘lishi kerak"
-    )
+
+    if new_deadline <= datetime.now(timezone.utc):
+        raise HTTPException(
+            400,
+            "Yangi muddat hozirgi vaqtdan keyin bo‘lishi kerak"
+        )
 
     survey.ends_at = new_deadline
     await db.commit()
@@ -342,6 +343,7 @@ if new_deadline <= datetime.now(timezone.utc):
         "ends_at": new_deadline.isoformat(),
         "message": "So‘rovnoma muddati muvaffaqiyatli o‘zgartirildi"
     }
+
 
 # Majburiy kanallar ro'yxati
 @app.get(
