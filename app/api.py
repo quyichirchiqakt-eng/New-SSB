@@ -334,7 +334,6 @@ if new_deadline <= datetime.now(timezone.utc):
         "Yangi muddat hozirgi vaqtdan keyin bo‘lishi kerak"
     )
 
-
     survey.ends_at = new_deadline
     await db.commit()
 
