@@ -275,6 +275,47 @@ async def publish_survey_photo(
         'bot_link': vote_url,
     }
 
+# Mavjud Telegram postining tugmalarini yangilash
+@app.post(
+    "/api/surveys/{survey_id}/update-post-buttons",
+    dependencies=[Depends(auth)]
+)
+async def update_post_buttons(
+    survey_id: int,
+    chat_id: int,
+    message_id: int,
+    db: AsyncSession = Depends(session)
+):
+    survey = await db.get(Survey, survey_id)
+    if not survey:
+        raise HTTPException(404, "So'rovnoma topilmadi")
+
+    username = settings.public_bot_username.lstrip('@')
+    keyboard = {
+        'inline_keyboard': [
+            [{'text': '🗳 OVOZ BERISH',
+              'url': f'https://t.me/{username}?start=s{survey_id}'}],
+            [{'text': '📊 NATIJALARNI KO‘RISH',
+              'url': f'https://t.me/{username}?start=results{survey_id}'}]
+        ]
+    }
+
+    url = f'https://api.telegram.org/bot{settings.bot_token}/editMessageReplyMarkup'
+    data = {
+        'chat_id': chat_id,
+        'message_id': message_id,
+        'reply_markup': keyboard
+    }
+
+    async with aiohttp.ClientSession() as client:
+        async with client.post(url, json=data) as response:
+            result = await response.json(content_type=None)
+
+    if not result.get('ok'):
+        raise HTTPException(400, "Telegram post tugmalarini yangilay olmadi")
+
+    return {'ok': True, 'survey_id': survey_id, 'message_id': message_id}
+
 # So'rovnomani faolsizlantirish
 @app.post(
     "/api/surveys/{survey_id}/deactivate",
