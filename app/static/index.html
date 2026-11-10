@@ -57,7 +57,13 @@
     Faqat majburiy obuna talabi olib tashlanadi.
   </small>
 </section>
-<h3>📸 Kanallarga rasmli post joylash</h3><small>Avval kanalni yuqoridagi «Majburiy kanal qo‘shish» bo‘limida so‘rovnomaga biriktiring. Bot kanal administratori va post joylash huquqiga ega bo‘lishi kerak.</small><label for="photoSurvey">So‘rovnoma ID</label><input id="photoSurvey" type="number" min="1" placeholder="Masalan: 1"><label for="photoChat">Kanal Chat ID</label><input id="photoChat" placeholder="Masalan: -1001234567890"><label for="postPhoto">Post rasmi (JPG/PNG, 8 MB gacha)</label><input id="postPhoto" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png"><label for="postCaption">Post matni (1024 belgigacha)</label><textarea id="postCaption" rows="5" maxlength="1024" placeholder="🏆 Ovoz berish boshlandi! ..."></textarea><small>«🗳 OVOZ BERISH» tugmasi so‘rovnomaga havola bilan avtomatik qo‘shiladi. Bir marta bosish — bir post; qayta bosish takroriy post chiqaradi.</small><button id="publishBtn" onclick="publishPhoto()">📤 Kanalga rasmli post joylash</button></section><section><h3>Natijalar</h3><input id="resultSurvey" type="number" placeholder="So‘rovnoma ID"><button onclick="get('/api/surveys/'+val('resultSurvey')+'/results')">Natijalarni ko‘rish</button><button onclick="download()">Excel yuklab olish</button></section><section><h3>Javob</h3><pre id="out"></pre></section><script>
+<h3>📸 Kanallarga rasmli post joylash</h3><small>Avval kanalni yuqoridagi «Majburiy kanal qo‘shish» bo‘limida so‘rovnomaga biriktiring. Bot kanal administratori va post joylash huquqiga ega bo‘lishi kerak.</small><label for="photoSurvey">So‘rovnoma ID</label><input id="photoSurvey" type="number" min="1" placeholder="Masalan: 1"><label for="photoChat">Kanal Chat ID</label><input id="photoChat" placeholder="Masalan: -1001234567890"><label for="postPhoto">Post rasmi (JPG/PNG, 8 MB gacha)</label><input id="postPhoto" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png"><label for="postCaption">Post matni (1024 belgigacha)</label><textarea id="postCaption" rows="5" maxlength="1024" placeholder="🏆 Ovoz berish boshlandi! ..."></textarea><small>«🗳 OVOZ BERISH» tugmasi so‘rovnomaga havola bilan avtomatik qo‘shiladi. Bir marta bosish — bir post; qayta bosish takroriy post chiqaradi.</small><button id="publishBtn" onclick="publishPhoto()">📤 Kanalga rasmli post joylash</button></section><section>
+  <h3>🔄 Telegram posti tugmalarini yangilash</h3>
+  <p>9-so‘rovnoma — Ohangaron TTB, 8679-post</p>
+  <button onclick="updatePostButtons()">
+    🗳 Ovoz berish va 📊 Natijalar tugmalarini yangilash
+  </button>
+</section><h3>Natijalar</h3><input id="resultSurvey" type="number" placeholder="So‘rovnoma ID"><button onclick="get('/api/surveys/'+val('resultSurvey')+'/results')">Natijalarni ko‘rish</button><button onclick="download()">Excel yuklab olish</button></section><section><h3>Javob</h3><pre id="out"></pre></section><script>
 const val=id=>document.getElementById(id).value;
 const output=x=>document.getElementById('out').textContent=typeof x==='string'?x:JSON.stringify(x,null,2);
 async function req(path,options={}){try{const r=await fetch(path,{...options,headers:{'X-Admin-Key':val('key'),...(options.headers||{})}});const data=await r.json();output(data);if(!r.ok)throw Error(JSON.stringify(data));return data}catch(e){output('Xatolik: '+e.message)}}
@@ -85,7 +91,44 @@ async function publishPhoto(){
  }catch(e){output('Xatolik: '+e.message)}
  finally{button.disabled=false;button.textContent='📤 Kanalga rasmli post joylash'}
 }
-  
+ 
+async function updatePostButtons() {
+  const surveyId = '9';
+  const chatId = '-1001875585917';
+  const messageId = '8679';
+
+  if (!val('key')) {
+    output('Admin kalitini kiriting');
+    return;
+  }
+
+  if (!confirm('8679-raqamli Telegram posti tugmalari yangilansinmi?')) {
+    return;
+  }
+
+  try {
+    const url = '/api/surveys/' + surveyId
+      + '/update-post-buttons?chat_id=' + chatId
+      + '&message_id=' + messageId;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {'X-Admin-Key': val('key')}
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      output('Xatolik: ' + JSON.stringify(data));
+      return;
+    }
+
+    output('Post tugmalari yangilandi: ' + JSON.stringify(data));
+  } catch (e) {
+    output('Xatolik: ' + e.message);
+  }
+}
+ 
 async function deactivateSurvey() {
   const id = val('manageSurvey').trim();
 
