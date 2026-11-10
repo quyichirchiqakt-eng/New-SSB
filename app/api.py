@@ -243,11 +243,11 @@ async def publish_survey_photo(
 
     username = settings.public_bot_username.lstrip('@')
     vote_url = f'https://t.me/{username}?start=s{survey_id}'
-           keyboard = {
+    keyboard = {
         'inline_keyboard': [
             [{'text': '🗳 OVOZ BERISH', 'url': vote_url}],
             [{'text': '📊 NATIJALARNI KO‘RISH',
-              'url': f'https://t.me/new_SSB_bot?start=results{survey_id}'}]
+              'url': f'https://t.me/{username}?start=results{survey_id}'}]
         ]
     }
     form = aiohttp.FormData()
