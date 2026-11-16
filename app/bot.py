@@ -167,8 +167,11 @@ async def audit_votes(message: Message):
         return
 
     parts = (message.text or '').split()
+    if len(parts) == 3 and parts[1].isdigit() and int(parts[1]) > 0 and parts[2].lower() == 'all':
+        await send_full_audit(message, int(parts[1]))
+        return
     if len(parts) != 2 or not parts[1].isdigit() or int(parts[1]) < 1:
-        await message.answer('Foydalanish: /audit 9')
+        await message.answer('Foydalanish: /audit 9 yoki /audit 9 all')
         return
 
     survey_id = int(parts[1])
@@ -215,6 +218,73 @@ async def audit_votes(message: Message):
         lines.append('⚠️ Oxirgi 5000 ovoz tahlil qilindi; natija to‘liq emas.')
     lines.append('ℹ️ Bu faqat signal. Ovozlar o‘chirilmaydi va soxta deb belgilanmaydi.')
     await message.answer('\n'.join(lines))
+
+
+async def send_full_audit(message: Message, survey_id: int):
+    """PostgreSQL ichida daqiqalik guruhlash; barcha ovozlarni sanaydi."""
+    async with Session() as db:
+        survey = await db.get(Survey, survey_id)
+        if not survey:
+            await message.answer('So‘rovnoma topilmadi.')
+            return
+        minute_expr = func.date_trunc('minute', Vote.created_at)
+        stmt = (select(Vote.candidate_id, minute_expr.label('minute'),
+                       func.count(Vote.id).label('count'))
+                .where(Vote.survey_id == survey_id)
+                .group_by(Vote.candidate_id, minute_expr)
+                .order_by(minute_expr))
+        rows = (await db.execute(stmt)).all()
+        names = dict((await db.execute(
+            select(Candidate.id, Employee.name)
+            .join(Employee, Employee.id == Candidate.employee_id)
+            .where(Candidate.survey_id == survey_id)
+        )).all())
+
+    total = sum(row.count for row in rows)
+    candidate_counts = defaultdict(int)
+    hourly_counts = defaultdict(int)
+    spikes = []
+    for row in rows:
+        candidate_counts[row.candidate_id] += row.count
+        hour = row.minute.replace(minute=0, second=0, microsecond=0)
+        hourly_counts[hour] += row.count
+        if row.count >= 10:
+            spikes.append((row.count, row.candidate_id, row.minute))
+
+    spikes.sort(key=lambda item: item[0], reverse=True)
+    busiest = sorted(hourly_counts.items(), key=lambda item: item[1], reverse=True)
+    lines = [f'🛡️ {survey.title}', 'Butun davr bo‘yicha ovozlar tahlili',
+             f'Jami tekshirilgan ovozlar: {total} ta',
+             'Mezon: bir nomzodga 1 daqiqada 10+ ovoz.', '',
+             '📊 Nomzodlar kesimida:']
+    for cid, count in sorted(candidate_counts.items(), key=lambda x: x[1], reverse=True):
+        lines.append(f'• {names.get(cid, "Nomzod " + str(cid))}: {count} ta')
+    if not candidate_counts:
+        lines.append('Ovozlar mavjud emas.')
+    lines.extend(['', '🕒 Eng faol soatlar (UTC):'])
+    for hour, count in busiest[:8]:
+        lines.append(f'• {hour:%d.%m.%Y %H:00} — {count} ta')
+    if not busiest:
+        lines.append('Ma’lumot yo‘q.')
+    lines.extend(['', f'⚠️ Keskin faollik oraliqlari: {len(spikes)} ta'])
+    for count, cid, minute in spikes[:10]:
+        lines.append(f'• {names.get(cid, "Nomzod " + str(cid))}: '
+                     f'{count} ta — {minute:%d.%m.%Y %H:%M} UTC')
+    if len(spikes) > 10:
+        lines.append(f'... yana {len(spikes) - 10} ta oraliq')
+    if not spikes:
+        lines.append('✅ Belgilangan mezon bo‘yicha keskin faollik topilmadi.')
+    lines.append('ℹ️ Bu signal, soxtalik isboti emas. Ovozlar o‘zgartirilmaydi.')
+
+    # Telegram xabari 4096 belgidan oshmasligi uchun qismlarga bo‘lamiz.
+    chunk = ''
+    for line in lines:
+        if len(chunk) + len(line) + 1 > 3800:
+            await message.answer(chunk)
+            chunk = ''
+        chunk += line + '\n'
+    if chunk:
+        await message.answer(chunk)
 
 
 @dp.callback_query(F.data.startswith('check:'))
