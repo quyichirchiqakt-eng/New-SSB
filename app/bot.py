@@ -2,13 +2,14 @@ import asyncio
 import os
 import logging
 from aiohttp import web
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from collections import defaultdict
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
-from .db import settings, Session, init_db, Survey, Candidate, Employee, Channel, Vote
+from .db import settings, Session, init_db, Survey, Candidate, Employee, Channel, Vote, recent_vote_activity
 
 bot=Bot(os.environ["BOT_TOKEN"])
 PORT = int(os.environ.get("PORT", "10000"))
@@ -144,6 +145,76 @@ async def start(message: Message):
         "Assalomu alaykum! So‘rovnoma havolasi orqali "
         "ovoz berishingiz mumkin."
     )
+
+
+# Administratorlar ro‘yxati Render Environment orqali beriladi:
+# AUDIT_ADMIN_IDS=123456789,987654321
+# Ro‘yxat bo‘sh bo‘lsa, audit buyrug‘i hech kimga ochilmaydi.
+def audit_admin_ids():
+    result = set()
+    for raw in os.environ.get('AUDIT_ADMIN_IDS', '').split(','):
+        raw = raw.strip()
+        if raw.isdigit():
+            result.add(int(raw))
+    return result
+
+
+@dp.message(F.text.regexp(r'^/audit(?:@\w+)?(?:\s|$)'))
+async def audit_votes(message: Message):
+    """So‘nggi 24 soatdagi ovozlar oqimini ko‘rib chiqish; ovozlarni o‘zgartirmaydi."""
+    if not message.from_user or message.from_user.id not in audit_admin_ids():
+        await message.answer('Bu buyruq faqat ruxsat berilgan administrator uchun.')
+        return
+
+    parts = (message.text or '').split()
+    if len(parts) != 2 or not parts[1].isdigit() or int(parts[1]) < 1:
+        await message.answer('Foydalanish: /audit 9')
+        return
+
+    survey_id = int(parts[1])
+    async with Session() as db:
+        survey = await db.get(Survey, survey_id)
+        if not survey:
+            await message.answer('So‘rovnoma topilmadi.')
+            return
+        activity, truncated = await recent_vote_activity(db, survey_id)
+        candidate_ids = {candidate_id for candidate_id, _ in activity}
+        names = {}
+        if candidate_ids:
+            stmt = (select(Candidate.id, Employee.name)
+                    .join(Employee, Employee.id == Candidate.employee_id)
+                    .where(Candidate.id.in_(candidate_ids)))
+            names = dict((await db.execute(stmt)).all())
+
+    # Bir daqiqalik vaqt oraliqlarida har bir nomzod bo‘yicha sanash.
+    per_minute = defaultdict(int)
+    for candidate_id, created_at in activity:
+        minute = created_at.replace(second=0, microsecond=0)
+        per_minute[(candidate_id, minute)] += 1
+
+    # 1 daqiqada 10+ ovoz: faqat tekshirish signali, firibgarlik dalili emas.
+    spikes = sorted(
+        ((count, cid, minute) for (cid, minute), count in per_minute.items()
+         if count >= 10),
+        reverse=True
+    )
+    lines = [f'🛡️ {survey.title}',
+             'So‘nggi 24 soatdagi ovozlar tahlili',
+             f'Ko‘rib chiqilgan ovozlar: {len(activity)} ta',
+             'Mezon: bir nomzodga 1 daqiqada 10 ta yoki undan ko‘p ovoz.', '']
+    if not spikes:
+        lines.append('✅ Belgilangan mezon bo‘yicha keskin faollik topilmadi.')
+    else:
+        lines.append(f'⚠️ Tekshirishga arziydigan oraliqlar: {len(spikes)} ta')
+        for count, cid, minute in spikes[:12]:
+            lines.append(f'• {names.get(cid, "Nomzod " + str(cid))}: '
+                         f'{count} ta — {minute:%d.%m.%Y %H:%M} UTC')
+        if len(spikes) > 12:
+            lines.append(f'... yana {len(spikes) - 12} ta oraliq')
+    if truncated:
+        lines.append('⚠️ Oxirgi 5000 ovoz tahlil qilindi; natija to‘liq emas.')
+    lines.append('ℹ️ Bu faqat signal. Ovozlar o‘chirilmaydi va soxta deb belgilanmaydi.')
+    await message.answer('\n'.join(lines))
 
 
 @dp.callback_query(F.data.startswith('check:'))
