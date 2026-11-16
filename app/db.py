@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from datetime import datetime, timezone, timedelta
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func, select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -65,6 +65,20 @@ class Vote(Base):
     candidate_id: Mapped[int] = mapped_column(ForeignKey('candidates.id'))
     telegram_user_id: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+async def recent_vote_activity(db, survey_id: int, limit: int = 5000):
+    """So‘nggi 24 soatdagi ovozlar (eng yangilaridan); hech narsani o‘zgartirmaydi.
+
+    Returns ([(candidate_id, created_at), ...], truncated).
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    stmt = (select(Vote.candidate_id, Vote.created_at)
+            .where(Vote.survey_id == survey_id, Vote.created_at >= cutoff)
+            .order_by(Vote.created_at.desc(), Vote.id.desc())
+            .limit(limit + 1))
+    rows = (await db.execute(stmt)).all()
+    return rows[:limit], len(rows) > limit
+
 
 async def init_db():
     async with engine.begin() as conn:
