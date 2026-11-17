@@ -444,3 +444,82 @@ async def remove_channel(
         "ok": True,
         "message": "Kanal majburiy obunadan olib tashlandi"
     }
+
+# 7-bosqich: faqat o‘qish uchun administrator statistikasi.
+@app.get('/api/dashboard', dependencies=[Depends(auth)])
+async def admin_dashboard(db: AsyncSession = Depends(session)):
+    now = datetime.now(timezone.utc)
+    org_count = await db.scalar(select(func.count(Organization.id))) or 0
+    survey_count = await db.scalar(select(func.count(Survey.id))) or 0
+    candidate_count = await db.scalar(select(func.count(Candidate.id))) or 0
+    vote_count = await db.scalar(select(func.count(Vote.id))) or 0
+    active_count = await db.scalar(select(func.count(Survey.id)).where(
+        Survey.active.is_(True), Survey.ends_at > now)) or 0
+    recent = (await db.execute(
+        select(Survey.id, Survey.title, Survey.ends_at, Survey.active,
+               func.count(Vote.id).label('votes'))
+        .outerjoin(Vote, Vote.survey_id == Survey.id)
+        .group_by(Survey.id, Survey.title, Survey.ends_at, Survey.active)
+        .order_by(Survey.id.desc()).limit(30)
+    )).all()
+    return {'organizations': org_count, 'surveys': survey_count,
+            'candidates': candidate_count, 'votes': vote_count,
+            'active_surveys': active_count,
+            'recent_surveys': [{'id': r.id, 'title': r.title,
+                                'ends_at': r.ends_at.isoformat(),
+                                'active': bool(r.active and r.ends_at > now),
+                                'votes': r.votes} for r in recent]}
+
+
+@app.get('/api/dashboard/surveys/{survey_id}', dependencies=[Depends(auth)])
+async def admin_survey_insights(survey_id: int, db: AsyncSession = Depends(session)):
+    survey = await db.get(Survey, survey_id)
+    if survey is None:
+        raise HTTPException(404, 'So‘rovnoma topilmadi')
+    counts = (await db.execute(
+        select(Candidate.id, Employee.name, func.count(Vote.id).label('votes'))
+        .join(Employee, Employee.id == Candidate.employee_id)
+        .outerjoin(Vote, (Vote.candidate_id == Candidate.id) &
+                   (Vote.survey_id == survey_id))
+        .where(Candidate.survey_id == survey_id)
+        .group_by(Candidate.id, Employee.name)
+        .order_by(func.count(Vote.id).desc(), Employee.name)
+    )).all()
+    total = sum(r.votes for r in counts)
+    maximum = max((r.votes for r in counts), default=0)
+    candidates = [{'id': r.id, 'name': r.name, 'votes': r.votes,
+                   'percent': round(r.votes * 100 / total, 2) if total else 0}
+                  for r in counts]
+    winners = [r.name for r in counts if r.votes == maximum] if total else []
+    minute = func.date_trunc('minute', Vote.created_at)
+    # SQL ichida guruhlash: barcha ovozlarni yuklab olish shart emas.
+    minute_rows = (await db.execute(
+        select(Vote.candidate_id, minute.label('minute'),
+               func.count(Vote.id).label('votes'))
+        .where(Vote.survey_id == survey_id)
+        .group_by(Vote.candidate_id, minute)
+        .having(func.count(Vote.id) >= 10)
+        .order_by(func.count(Vote.id).desc(), minute.desc())
+        .limit(25)
+    )).all()
+    candidate_names = {r.id: r.name for r in counts}
+    hourly = func.date_trunc('hour', Vote.created_at)
+    hours = (await db.execute(
+        select(hourly.label('hour'), func.count(Vote.id).label('votes'))
+        .where(Vote.survey_id == survey_id)
+        .group_by(hourly).order_by(hourly.desc()).limit(48)
+    )).all()
+    spike_count = await db.scalar(select(func.count()).select_from(
+        select(Vote.candidate_id, minute)
+        .where(Vote.survey_id == survey_id)
+        .group_by(Vote.candidate_id, minute)
+        .having(func.count(Vote.id) >= 10).subquery())) or 0
+    return {'survey_id': survey_id, 'title': survey.title,
+            'ends_at': survey.ends_at.isoformat(), 'active': survey.active,
+            'total_votes': total, 'candidates': candidates,
+            'winners': winners, 'spike_count': spike_count,
+            'spikes': [{'candidate': candidate_names.get(r.candidate_id, str(r.candidate_id)),
+                        'minute_utc': r.minute.isoformat(), 'votes': r.votes}
+                       for r in minute_rows],
+            'hourly': [{'hour_utc': r.hour.isoformat(), 'votes': r.votes}
+                       for r in reversed(hours)]}
