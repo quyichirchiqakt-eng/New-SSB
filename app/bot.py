@@ -7,9 +7,10 @@ from collections import defaultdict
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
-from sqlalchemy import select, func
+from sqlalchemy import select, func, BigInteger, ForeignKey, UniqueConstraint
 from sqlalchemy.exc import IntegrityError
-from .db import settings, Session, init_db, Survey, Candidate, Employee, Channel, Vote, recent_vote_activity
+from sqlalchemy.orm import Mapped, mapped_column
+from .db import settings, Session, init_db, Survey, Candidate, Employee, Channel, Vote, recent_vote_activity, Base, engine
 
 bot=Bot(os.environ["BOT_TOKEN"])
 PORT = int(os.environ.get("PORT", "10000"))
@@ -287,6 +288,131 @@ async def send_full_audit(message: Message, survey_id: int):
         await message.answer(chunk)
 
 
+# 4-bosqich: yakuniy natijalarni administrator tasdig‘i bilan e’lon qilish.
+# Yangi jadval faqat e’lon tarixini saqlaydi; votes jadvaliga tegmaydi.
+class FinalPublication(Base):
+    __tablename__ = 'final_publications'
+    __table_args__ = (UniqueConstraint('survey_id', 'chat_id', name='uq_final_publication'),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    survey_id: Mapped[int] = mapped_column(ForeignKey('surveys.id'))
+    chat_id: Mapped[int] = mapped_column(BigInteger)
+    message_id: Mapped[int] = mapped_column(BigInteger)
+
+
+_final_publish_lock = asyncio.Lock()
+
+
+async def final_report(db, survey_id: int):
+    survey = await db.get(Survey, survey_id)
+    if not survey:
+        return None, None
+    stmt = (select(Employee.name, func.count(Vote.id).label('votes'))
+            .select_from(Candidate)
+            .join(Employee, Employee.id == Candidate.employee_id)
+            .outerjoin(Vote, (Vote.candidate_id == Candidate.id) & (Vote.survey_id == survey_id))
+            .where(Candidate.survey_id == survey_id)
+            .group_by(Candidate.id, Employee.name)
+            .order_by(func.count(Vote.id).desc(), Employee.name))
+    rows = (await db.execute(stmt)).all()
+    total = sum(r.votes for r in rows)
+    lines = [f'🏆 {survey.title}', '📊 YAKUNIY NATIJALAR', '']
+    for i, r in enumerate(rows, 1):
+        pct = (r.votes / total * 100) if total else 0
+        lines.append(f'{i}. {r.name} — {r.votes} ta ({pct:.2f}%)')
+    lines.extend(['', f'🗳 Jami ovozlar: {total} ta'])
+    if rows and total:
+        max_votes = rows[0].votes
+        winners = [r.name for r in rows if r.votes == max_votes]
+        lines.append('🥇 G‘olib: ' + ', '.join(winners))
+    else:
+        lines.append('G‘olib aniqlanmadi: ovozlar mavjud emas.')
+    return survey, '\n'.join(lines)
+
+
+@dp.message(F.text.regexp(r'^/final(?:@\w+)?(?:\s|$)'))
+async def final_preview(message: Message):
+    if not message.from_user or message.from_user.id not in audit_admin_ids():
+        await message.answer('Bu buyruq faqat ruxsat berilgan administrator uchun.')
+        return
+    parts = (message.text or '').split()
+    if len(parts) != 2 or not parts[1].isdigit() or int(parts[1]) < 1:
+        await message.answer('Foydalanish: /final 9')
+        return
+    sid = int(parts[1])
+    async with Session() as db:
+        survey, report = await final_report(db, sid)
+        if not survey:
+            await message.answer('So‘rovnoma topilmadi.')
+            return
+        if survey.ends_at > datetime.now(timezone.utc) and survey.active:
+            await message.answer('So‘rovnoma hali davom etmoqda. Yakuniy e’lon qilish mumkin emas.')
+            return
+        channels = (await db.scalars(select(Channel).where(Channel.survey_id == sid))).all()
+        published = set((await db.scalars(select(FinalPublication.chat_id)
+                                          .where(FinalPublication.survey_id == sid))).all())
+    await message.answer('🔎 Administrator uchun ko‘rib chiqish:\n\n' + report)
+    buttons = [[InlineKeyboardButton(text=f'📢 Kanalga e’lon qilish ({ch.chat_id})',
+                                     callback_data=f'finalpub:{sid}:{ch.chat_id}')]
+               for ch in channels if ch.chat_id not in published]
+    if buttons:
+        await message.answer('Natijalar to‘g‘ri bo‘lsa, e’lon qilinadigan kanalni tanlang:',
+                             reply_markup=keyboard(buttons))
+    else:
+        await message.answer('E’lon qilinmagan bog‘langan kanallar yo‘q. '
+                             'Kanal belgilanmagan yoki natijalar avval e’lon qilingan.')
+
+
+@dp.callback_query(F.data.startswith('finalpub:'))
+async def final_publish(call: CallbackQuery):
+    if not call.from_user or call.from_user.id not in audit_admin_ids():
+        await call.answer('Ruxsat yo‘q.', show_alert=True)
+        return
+    try:
+        _, sid_raw, chat_raw = call.data.split(':')
+        sid, chat_id = int(sid_raw), int(chat_raw)
+    except (ValueError, AttributeError):
+        await call.answer('Noto‘g‘ri so‘rov.', show_alert=True)
+        return
+    async with _final_publish_lock:
+        async with Session() as db:
+            survey, report = await final_report(db, sid)
+            if not survey:
+                await call.answer('So‘rovnoma topilmadi.', show_alert=True)
+                return
+            if survey.ends_at > datetime.now(timezone.utc) and survey.active:
+                await call.answer('So‘rovnoma hali davom etmoqda.', show_alert=True)
+                return
+            allowed = await db.scalar(select(Channel.id).where(
+                Channel.survey_id == sid, Channel.chat_id == chat_id))
+            if not allowed:
+                await call.answer('Kanal bu so‘rovnomaga biriktirilmagan.', show_alert=True)
+                return
+            existing = await db.scalar(select(FinalPublication.id).where(
+                FinalPublication.survey_id == sid, FinalPublication.chat_id == chat_id))
+            if existing:
+                await call.answer('Bu kanalga avval e’lon qilingan.', show_alert=True)
+                return
+            if len(report) > 4096:
+                await call.answer('Hisobot Telegram xabariga sig‘maydi.', show_alert=True)
+                return
+            try:
+                posted = await bot.send_message(chat_id, report)
+            except Exception:
+                logging.exception('Yakuniy natijani kanalga yuborib bo‘lmadi')
+                await call.answer('Kanalga yuborilmadi. Botning kanal huquqlarini tekshiring.', show_alert=True)
+                return
+            db.add(FinalPublication(survey_id=sid, chat_id=chat_id, message_id=posted.message_id))
+            try:
+                await db.commit()
+            except Exception:
+                logging.exception('E’lon tarixi saqlanmadi; kanalga xabar yuborilgan bo‘lishi mumkin')
+                await db.rollback()
+                await call.answer('Xabar yuborildi, lekin tarix saqlanmadi. Qayta bosmang!', show_alert=True)
+                return
+    await call.answer('Yakuniy natijalar e’lon qilindi.')
+    await call.message.answer(f'✅ {sid}-so‘rovnoma yakuniy natijalari {chat_id} kanaliga e’lon qilindi.')
+
+
 @dp.callback_query(F.data.startswith('check:'))
 async def check(call:CallbackQuery):
     await call.answer()
@@ -363,6 +489,9 @@ async def start_web_server():
 async def main():
     logging.basicConfig(level=logging.INFO)
     await init_db()
+    # E’lon tarixini saqlash uchun alohida jadval yaratish (mavjud ovozlarga tegmaydi).
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     runner = await start_web_server()
 
     try:
@@ -415,4 +544,3 @@ async def update_survey8_post():
 
 if __name__ == '__main__':
     asyncio.run(main())
-
