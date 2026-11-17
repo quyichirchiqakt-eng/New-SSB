@@ -291,4 +291,65 @@ async function extendSurveyDeadline() {
   }
 }
 
-</script></body></html>
+</script>
+<section id="dashboard7">
+<h2>📊 7-bosqich: Boshqaruv paneli</h2>
+<small>Statistika faqat o‘qiladi. Administrator kaliti talab etiladi.</small>
+<button type="button" onclick="dashboard7Load()">🔄 Umumiy statistikani yangilash</button>
+<div id="dash7stats" class="dash7grid"></div>
+<div id="dash7surveys"></div>
+<h3>🏆 Natijalar va xavfsizlik monitoringi</h3>
+<label for="dash7survey">So‘rovnoma ID</label>
+<input id="dash7survey" type="number" min="1" value="9">
+<button type="button" onclick="dashboard7Survey()">📈 So‘rovnomani tahlil qilish</button>
+<div id="dash7details"></div>
+</section>
+<style>
+.dash7grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:12px 0}
+.dash7tile{border:1px solid #dce5f1;border-radius:10px;padding:12px;background:#f8fbff}
+.dash7tile strong{display:block;font-size:24px;color:#174f9a}
+.dash7table{width:100%;border-collapse:collapse;font-size:14px}
+.dash7table td,.dash7table th{padding:8px;border-bottom:1px solid #e1e6ed;text-align:left}
+.dash7bar{height:15px;background:#e8eff9;border-radius:6px;overflow:hidden;margin:3px 0 12px}
+.dash7fill{height:100%;background:#2676c9}
+.dash7scroll{overflow-x:auto}
+</style>
+<script>
+const dash7esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function dash7Fetch(url){
+ const key=document.getElementById('key').value;
+ if(!key)throw Error('Avval administrator kalitini kiriting');
+ const r=await fetch(url,{headers:{'X-Admin-Key':key},cache:'no-store'});
+ if(!r.ok)throw Error('Server xatosi: '+r.status);
+ return await r.json();
+}
+async function dashboard7Load(){
+ const box=document.getElementById('dash7stats'), list=document.getElementById('dash7surveys');
+ box.textContent='Yuklanmoqda...';
+ try{
+  const d=await dash7Fetch('/api/dashboard');
+  const items=[['Tashkilotlar',d.organizations],['So‘rovnomalar',d.surveys],['Faol so‘rovnomalar',d.active_surveys],['Nomzodlar',d.candidates],['Jami ovozlar',d.votes]];
+  box.innerHTML=items.map(([label,num])=>'<div class="dash7tile"><small>'+dash7esc(label)+'</small><strong>'+Number(num).toLocaleString('uz-UZ')+'</strong></div>').join('');
+  list.innerHTML='<h3>So‘nggi so‘rovnomalar</h3><div class="dash7scroll"><table class="dash7table"><thead><tr><th>ID</th><th>Nomi</th><th>Ovoz</th><th>Holati</th></tr></thead><tbody>'+d.recent_surveys.map(s=>'<tr><td>'+s.id+'</td><td>'+dash7esc(s.title)+'</td><td>'+s.votes+'</td><td>'+(s.active?'Faol':'Yopilgan')+'</td></tr>').join('')+'</tbody></table></div>';
+ }catch(e){box.textContent='Xatolik: '+e.message;list.textContent='';}
+}
+async function dashboard7Survey(){
+ const id=document.getElementById('dash7survey').value, box=document.getElementById('dash7details');
+ if(!/^\d+$/.test(id)||Number(id)<1){box.textContent='To‘g‘ri so‘rovnoma ID kiriting';return;}
+ box.textContent='Tahlil yuklanmoqda...';
+ try{
+  const d=await dash7Fetch('/api/dashboard/surveys/'+encodeURIComponent(id));
+  let s='<h3>'+dash7esc(d.title)+'</h3><p>Jami: <b>'+d.total_votes+'</b> ovoz</p>';
+  s+='<p>🏆 '+(d.winners.length?'Yetakchi: '+d.winners.map(dash7esc).join(', '):'Hozircha ovoz yo‘q')+'</p>';
+  s+='<h4>Nomzodlar reytingi</h4>';
+  for(const c of d.candidates){s+='<div>'+dash7esc(c.name)+' — '+c.votes+' ('+c.percent+'%)</div><div class="dash7bar"><div class="dash7fill" style="width:'+Math.max(0,Math.min(100,c.percent))+'%"></div></div>';}
+  s+='<h4>🛡️ Keskin faollik</h4><p>1 daqiqada bitta nomzodga 10+ ovoz kelgan oraliqlar: <b>'+d.spike_count+'</b>. Bu soxtalik isboti emas.</p>';
+  if(d.spikes.length){s+='<div class="dash7scroll"><table class="dash7table"><tr><th>Nomzod</th><th>Vaqt (UTC)</th><th>Ovoz</th></tr>'+d.spikes.map(x=>'<tr><td>'+dash7esc(x.candidate)+'</td><td>'+dash7esc(x.minute_utc)+'</td><td>'+x.votes+'</td></tr>').join('')+'</table></div>';}
+  s+='<h4>🕒 Oxirgi 48 faol soat (UTC)</h4>';
+  const max=Math.max(1,...d.hourly.map(x=>x.votes));
+  for(const h of d.hourly){s+='<small>'+dash7esc(h.hour_utc)+' — '+h.votes+' ovoz</small><div class="dash7bar"><div class="dash7fill" style="width:'+(h.votes/max*100)+'%"></div></div>';}
+  box.innerHTML=s;
+ }catch(e){box.textContent='Xatolik: '+e.message;}
+}
+</script>
+</body></html>
